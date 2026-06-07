@@ -52,7 +52,7 @@ library(plotly)
 # Dane tekstowe ----
 
 
-docs   <- DirSource("dataset")
+docs   <- DirSource("dataset1")
 corpus <- VCorpus(docs)
 
 #' # 1. Przetwarzanie i oczyszczanie tekstu
