@@ -10,7 +10,7 @@ The project scrapes public postmortem reports (Amazon, Google, Cloudflare, GitHu
  
 | Author | Area | Sections |
 |---|---|---|
-| **Karol Jahn** | Data collection & preprocessing | Web scraping (`scrape_postmortem.R`), corpus cleaning, stopword removal, stemming, TDM/DTM construction, word frequency analysis, HTML/CSS styling |
+| **Karol Jahn** | Data collection & preprocessing | Web scraping (`scrape_postmortem.R`), corpus cleaning, stopword removal, stemming, TDM/DTM construction, word frequency analysis |
 | **Bartosz Kalinowski** | Clustering & TF-IDF | K-means clustering, silhouette-based `k` selection, cluster visualisations, word clouds per cluster, TF-IDF per company |
 | **Michał Płaza** | Sentiment & associations | NRC sentiment analysis, emotion heatmaps, per-company emotion profiles, keyword association analysis, conclusions, SRS documentation|
  
