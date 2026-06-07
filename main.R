@@ -5,8 +5,8 @@
 #' output:
 #'   html_document:
 #'     df_print: paged
-#'     theme: readable
-#'     highlight: kate
+#'     theme: darkly
+#'     highlight: espresso
 #'     toc: true
 #'     toc_depth: 3
 #'     toc_float:
@@ -16,7 +16,15 @@
 #'     number_sections: false
 #' ---
 
-
+#' <style>
+#' .dataTables_wrapper { color: #e0e0e0 !important; }
+#' table.dataTable tbody tr { background-color: #2d2d2d !important; color: #e0e0e0 !important; }
+#' table.dataTable tbody tr:hover { background-color: #3a3a3a !important; }
+#' table.dataTable thead th { background-color: #1a1a1a !important; color: #ffffff !important; }
+#' .dataTables_filter input, .dataTables_length select { background-color: #2d2d2d !important; color: #e0e0e0 !important; border: 1px solid #555 !important; }
+#' .dataTables_info, .dataTables_paginate { color: #e0e0e0 !important; }
+#' .paginate_button { color: #e0e0e0 !important; }
+#' </style>
 knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE
@@ -77,8 +85,13 @@ corpus <- tm_map(corpus, stripWhitespace)
 
 # Usunięcie słów mało wnoszących do analizy technicznej awarii
 corpus <- tm_map(corpus, removeWords, c("can", "will", "just", "dont", "get", "like", 
-                                        "one", "however", "also", "using", "can", "new"))
-corpus <- tm_map(corpus, stripWhitespace)
+                                        "one", "however", "also", "using", "new"))
+custom_stopwords <- unique(c(
+  "can", "will", "just", "dont", "get", "like", "one", "however", 
+  "also", "using", "new", "due", "may", "upon", "via", "per",
+  "result", "cause", "issue"  # zbyt ogólne w tym kontekście
+))
+corpus <- tm_map(corpus, removeWords, custom_stopwords)
 
 #' # Stemming
 # Stemming ----
@@ -177,15 +190,16 @@ if (ncol(dtm_tfidf_m) < 3) {
 
 #' ## Dobór liczby klastrów
 # Dobór optymalnej liczby klastrów
-fviz_nbclust(dtm_tfidf_m, kmeans, method = "silhouette") +
+max_k <- min(8, nrow(dtm_tfidf_m) - 1)
+
+fviz_nbclust(dtm_tfidf_m, kmeans, method = "silhouette", k.max = max_k) +
   labs(
     title = "Dobór liczby klastrów (Przyczyny awarii)", 
     subtitle = "Metoda sylwetki na bazie macierzy TF-IDF"
   )
 
-# Automatyczny dobór k na podstawie sylwetki
-# Uruchomienie dla k od 2 do 8 i wybór najlepszego
-sil_width <- sapply(2:8, function(k) {
+set.seed(123)
+sil_width <- sapply(2:max_k, function(k) {
   km <- kmeans(dtm_tfidf_m, centers = k, nstart = 10)
   ss <- silhouette(km$cluster, dist(dtm_tfidf_m))
   mean(ss[, 3])
@@ -195,7 +209,7 @@ cat("Optymalna liczba klastrów (wg sylwetki):", optimal_k, "\n")
 
 # Uruchomienie K-means z optymalną liczbą klastrów
 set.seed(123)
-k_awarie <- min(optimal_k, 5)  # Maksymalnie 5 klastrów dla czytelności
+k_awarie <- min(optimal_k, 5, nrow(dtm_tfidf_m) - 1)  # Maksymalnie 5 klastrów dla czytelności
 klastrowanie <- kmeans(dtm_tfidf_m, centers = k_awarie, nstart = 25)
 
 #' ## Wizualizacja klastrów
@@ -286,6 +300,7 @@ ggplot(documents_clusters, aes(x = as.factor(Klaster), fill = as.factor(Klaster)
 
 # Surowy tekst do analizy emocjonalnej
 raw_texts       <- sapply(corpus_copy, function(doc) as.character(doc$content))
+#Celowo używane corpus_copy, a nie corpus_processed, bo stemming psuje NRC
 doc_names_short <- gsub("\\.txt$", "", names(corpus_copy))
 
 # Obliczamy macierz sentymentów NRC
@@ -419,6 +434,11 @@ datatable(
   rownames = FALSE,
   options  = list(pageLength = 10, scrollX = TRUE)
 )
+cat("\nInterpretacja klastrów:\n")
+for (i in 1:k_awarie) {
+  row <- cluster_info_df[cluster_info_df$Klaster == i, ]
+  cat(sprintf("Klaster %d (%d doc): %s\n", i, row$Liczba_dokumentow, row$Top_5_slow_przyczyn))
+}
 
 #' # 5. TF-IDF per firma
 # 5. TF-IDF per firma ----
@@ -447,9 +467,20 @@ company_top_df <- tfidf_company_df %>%
   summarise(across(where(is.numeric), mean), .groups = "drop") %>%
   pivot_longer(cols = -firma, names_to = "slowo", values_to = "tfidf") %>%
   group_by(firma) %>%
-  slice_max(order_by = tfidf, n = 8, with_ties = FALSE) %>%  # Top 8 słów per firma
+  slice_max(order_by = tfidf, n = 8, with_ties = FALSE) %>%
   ungroup() %>%
-  filter(tfidf > 0)  # Tylko słowa, które faktycznie występują
+  filter(tfidf > 0)
+
+company_top_df %>%
+  filter(firma %in% head(unique(firma), 8)) %>%  # top 8 firm dla czytelności
+  ggplot(aes(x = reorder(slowo, tfidf), y = tfidf, fill = firma)) +
+  geom_col(show.legend = FALSE, color = "white") +
+  facet_wrap(~firma, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Charakterystyczne słowa per firma (TF-IDF)",
+       x = NULL, y = "Waga TF-IDF") +
+  theme_minimal(base_size = 10) +
+  theme(strip.text = element_text(face = "bold")) # Tylko słowa, które faktycznie występują
 
 
 
@@ -473,7 +504,7 @@ key_terms       <- key_terms[key_terms %in% available_terms]
 if (length(key_terms) > 0) {
   # Obliczenie asocjacji (top 10 per termin, próg korelacji 0.15 - podniesiony dla lepszej jakości)
   assoc_list <- lapply(key_terms, function(term) {
-    assocs <- findAssocs(tdm, term, corlimit = 0.15)[[1]]
+    assocs <- findAssocs(tdm, term, corlimit = 0.05)[[1]]
     if (length(assocs) == 0) return(NULL)
     top_assocs <- head(sort(assocs, decreasing = TRUE), 10)
     data.frame(
@@ -528,10 +559,12 @@ if (!is.null(assoc_df) && nrow(assoc_df) > 0) {
 
 #' # Podsumowanie i wnioski
 # Podsumowanie ----
-cat("\n=== PODSUMOWANIE ANALIZY ===\n")
-cat("Liczba dokumentów w korpusie:", length(corpus_processed), "\n")
-cat("Liczba unikalnych słów po oczyszczeniu:", nrow(tdm_m), "\n")
-cat("Liczba słów po usunięciu rzadkich terminów (TF-IDF):", ncol(dtm_tfidf_m), "\n")
-cat("Liczba klastrów wybrana automatycznie:", k_awarie, "\n")
-cat("Liczba firm w analizie sentymentu:", length(unique(sentiment_df$firma)), "\n")
-cat("Liczba słów kluczowych z asocjacjami:", length(unique(assoc_df$termin_glowny)), "\n")
+cat(paste0(
+  "\n=== PODSUMOWANIE ANALIZY ===\n",
+  "Liczba dokumentów w korpusie: ", length(corpus_processed), "\n",
+  "Liczba unikalnych słów po oczyszczeniu: ", nrow(tdm_m), "\n",
+  "Liczba słów po usunięciu rzadkich terminów (TF-IDF): ", ncol(dtm_tfidf_m), "\n",
+  "Liczba klastrów wybrana automatycznie: ", k_awarie, "\n",
+  "Liczba firm w analizie sentymentu: ", length(unique(sentiment_df$firma)), "\n",
+  "Liczba słów kluczowych z asocjacjami: ", if (!is.null(assoc_df)) length(unique(assoc_df$termin_glowny)) else 0, "\n"
+))
